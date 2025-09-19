@@ -46,3 +46,8 @@ checkpoints/
 
 # Ignore generated sample .wav files
 **/*.wav
+venv/
+env/
+test/
+run_infer.log
+*.cmd

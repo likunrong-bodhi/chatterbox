@@ -220,7 +220,7 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
     
     return extracted_segments
 
-def process_audio_files(input_dir, output_dir, target_voice_path, continue_job=False):
+def process_audio_files(input, output_dir, target_voice_path, continue_job=False):
     supported_extensions = ('.wav', '.mp3')
     venv_python = sys.executable
 
@@ -241,79 +241,90 @@ def process_audio_files(input_dir, output_dir, target_voice_path, continue_job=F
     print(f"Using device: {device}")
     model = ChatterboxVC.from_pretrained(device)
 
+    # if input is actually a file, process that single file
+    if os.path.isfile(input):
+        filename = os.path.basename(input)
+        input_dir = os.path.dirname(input)
+        process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_path, model, continue_job)
+        return
+
     # Process each file in the input directory.
-    for filename in os.listdir(input_dir):
+    for filename in os.listdir(input):
         if filename.lower().endswith(supported_extensions):
-            input_file = os.path.join(input_dir, filename)
-            base_name, _ = os.path.splitext(filename)
-            
-            # Create a subdirectory for segments from this file.
-            file_temp_dir = os.path.join(temp_dir, base_name)
-            os.makedirs(file_temp_dir, exist_ok=True)
-            
-            # Split the file into silence and non-silence segments.
-            segments = split_audio_into_segments(
-                input_file, file_temp_dir, noise_threshold=-20, silence_duration=1.5, continue_job=continue_job, padding_sec=0.1
+            process_audio_file(filename, input, temp_dir, output_dir, target_voice_path, model, continue_job)
+
+def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_path, model, continue_job):
+    
+    print(f"Process file: {filename}, using target voice: {target_voice_path}")
+
+    input_file = os.path.join(input_dir, filename)
+    base_name, _ = os.path.splitext(filename)
+
+    # Create a subdirectory for segments from this file.
+    file_temp_dir = os.path.join(temp_dir, base_name)
+    os.makedirs(file_temp_dir, exist_ok=True)
+
+    # Split the file into silence and non-silence segments.
+    segments = split_audio_into_segments(
+        input_file, file_temp_dir, noise_threshold=-20, silence_duration=1.5, continue_job=continue_job, padding_sec=0.1
+    )
+
+    # Process each segment accordingly.
+    # Batch process all non-silence segments at once using the new CLI
+    env_python = sys.executable
+    processed_dir = os.path.join(file_temp_dir, "processed_segments")
+    os.makedirs(processed_dir, exist_ok=True)
+    # Move all silence-only segments directly into processed_dir
+    for fname in os.listdir(file_temp_dir):
+        if '_silence' in fname and '_non_silence' not in fname:
+            src = os.path.join(file_temp_dir, fname)
+            dst = os.path.join(processed_dir, fname)
+            shutil.move(src, dst)
+
+    # model processing
+    for file in os.listdir(file_temp_dir):
+        if file.endswith(".wav"):
+            wav = model.generate(
+                audio=os.path.join(file_temp_dir, file),
+                target_voice_path=target_voice_path,
             )
-            
-            # Process each segment accordingly.
-            # Batch process all non-silence segments at once using the new CLI
-            env_python = sys.executable
-            processed_dir = os.path.join(file_temp_dir, "processed_segments")
-            os.makedirs(processed_dir, exist_ok=True)
-            # Move all silence-only segments directly into processed_dir
-            for filename in os.listdir(file_temp_dir):
-                if '_silence' in filename and '_non_silence' not in filename:
-                    src = os.path.join(file_temp_dir, filename)
-                    dst = os.path.join(processed_dir, filename)
-                    shutil.move(src, dst)
-            
-            print(f"Converting to target voice: {target_voice_path}")
+            output_path = os.path.join(processed_dir, file)
+            ta.save(output_path, wav, model.sr)
+            #print(f"Saved converted audio to: {output_path}")
 
-            # model processing
-            for file in os.listdir(file_temp_dir):
-                if file.endswith(".wav"):
-                    wav = model.generate(
-                        audio=os.path.join(file_temp_dir, file),
-                        target_voice_path=target_voice_path,
-                    )
-                    output_path = os.path.join(processed_dir, file)
-                    ta.save(output_path, wav, model.sr)
-                    #print(f"Saved converted audio to: {output_path}")
+    #safe_print(f"renaming .wav.wav to .wav in {processed_dir}")
+    # Fix double .wav extension from infer_cli_dir outputs
+    for fname in os.listdir(processed_dir):
+        if fname.endswith('.wav.wav'):
+            src = os.path.join(processed_dir, fname)
+            dst = os.path.join(processed_dir, fname[:-4])
+            shutil.move(src, dst)
 
-            #safe_print(f"renaming .wav.wav to .wav in {processed_dir}")
-            # Fix double .wav extension from infer_cli_dir outputs
-            for fname in os.listdir(processed_dir):
-                if fname.endswith('.wav.wav'):
-                    src = os.path.join(processed_dir, fname)
-                    dst = os.path.join(processed_dir, fname[:-4])
-                    shutil.move(src, dst)
+    # Build final segment list, copying silence segments as-is
+    final_segments = []
+    for seg_file, seg_type, start, end in segments:
+        basename = os.path.basename(seg_file)
+        processed_seg = os.path.join(processed_dir, basename)
+        if seg_type == 'silence':
+            continue
+        final_segments.append((processed_seg, start))
 
-            # Build final segment list, copying silence segments as-is
-            final_segments = []
-            for seg_file, seg_type, start, end in segments:
-                basename = os.path.basename(seg_file)
-                processed_seg = os.path.join(processed_dir, basename)
-                if seg_type == 'silence':
-                    continue
-                final_segments.append((processed_seg, start))
+    # Reorder segments by their original start times.
+    final_segments_sorted = sorted(final_segments, key=lambda x: x[1])
 
-            # Reorder segments by their original start times.
-            final_segments_sorted = sorted(final_segments, key=lambda x: x[1])
-            
-            # Write a concat file for ffmpeg.
-            concat_list = os.path.join(file_temp_dir, "concat.txt")
-            with open(concat_list, 'w', encoding='utf-8') as f:
-                for seg, _ in final_segments_sorted:
-                    f.write(f"file '{seg}'\n")
+    # Write a concat file for ffmpeg.
+    concat_list = os.path.join(file_temp_dir, "concat.txt")
+    with open(concat_list, 'w', encoding='utf-8') as f:
+        for seg, _ in final_segments_sorted:
+            f.write(f"file '{seg}'\n")
 
-            # get target_voice_path file name without path and extension
-            target_voice_file_name = os.path.splitext(os.path.basename(target_voice_path))[0]
-            final_output_path = os.path.join(output_dir, f"chatterbox-target-{target_voice_file_name}-_{base_name}.wav")
+    # get target_voice_path file name without path and extension
+    target_voice_file_name = os.path.splitext(os.path.basename(target_voice_path))[0]
+    final_output_path = os.path.join(output_dir, f"chatterbox-target-{target_voice_file_name}-_{base_name}.wav")
 
-            all_segments = [seg for seg, _ in final_segments_sorted]
+    all_segments = [seg for seg, _ in final_segments_sorted]
 
-            batch_concat_python(all_segments, final_output=final_output_path)
+    batch_concat_python(all_segments, final_output=final_output_path)
 
     # remove temp_dir
     # shutil.rmtree(temp_dir)
@@ -351,7 +362,7 @@ def batch_concat_python(files, final_output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process audio files by splitting into silence and non-silence segments.')
-    parser.add_argument('--input_dir', required=True, help="Input directory")
+    parser.add_argument('--input', required=True, help="Input directory")
     parser.add_argument('--output_dir', required=True, help="Output directory")
     parser.add_argument('--target', help="Path to the target sound file")
     parser.add_argument('--log_file', default=LOG_FILE, help="Log")
@@ -364,7 +375,7 @@ if __name__ == "__main__":
     log_message(f"Processing started at {start_time}")
     safe_print(f"Processing started at {start_time}")
 
-    process_audio_files(args.input_dir, args.output_dir, args.target, False)
+    process_audio_files(args.input, args.output_dir, args.target, False)
 
     # Record end time
     end_time = datetime.datetime.now()
