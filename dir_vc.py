@@ -241,21 +241,27 @@ def process_audio_files(input, output_dir, target_voice_path, continue_job=False
     print(f"Using device: {device}")
     model = ChatterboxVC.from_pretrained(device)
 
+    output_files = []
+
     # if input is actually a file, process that single file
     if os.path.isfile(input):
         filename = os.path.basename(input)
         input_dir = os.path.dirname(input)
-        process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_path, model, continue_job)
-        return
+        out_file = process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_path, model, continue_job)
+        if out_file:
+            output_files.append(out_file)
+        return output_files
 
     # Process each file in the input directory.
     for filename in os.listdir(input):
         if filename.lower().endswith(supported_extensions):
-            process_audio_file(filename, input, temp_dir, output_dir, target_voice_path, model, continue_job)
+            out_file = process_audio_file(filename, input, temp_dir, output_dir, target_voice_path, model, continue_job)
+            if out_file:
+                output_files.append(out_file)
+    return output_files
 
 def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_path, model, continue_job):
-    
-    print(f"Process file: {filename}, using target voice: {target_voice_path}")
+    print(f"Processing file: {filename}, using target voice: {target_voice_path}")
 
     input_file = os.path.join(input_dir, filename)
     base_name, _ = os.path.splitext(filename)
@@ -282,17 +288,19 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
             shutil.move(src, dst)
 
     # model processing
-    for file in os.listdir(file_temp_dir):
-        if file.endswith(".wav"):
-            wav = model.generate(
-                audio=os.path.join(file_temp_dir, file),
-                target_voice_path=target_voice_path,
-            )
-            output_path = os.path.join(processed_dir, file)
-            ta.save(output_path, wav, model.sr)
-            #print(f"Saved converted audio to: {output_path}")
+    wav_files = [file for file in os.listdir(file_temp_dir) if file.endswith(".wav")]
+    total = len(wav_files)
+    for idx, file in enumerate(wav_files, 1):
+        print(f"Processing {idx}/{total}: {file}")
+        wav = model.generate(
+            audio=os.path.join(file_temp_dir, file),
+            target_voice_path=target_voice_path,
+        )
+        output_path = os.path.join(processed_dir, file)
+        ta.save(output_path, wav, model.sr)
 
-    #safe_print(f"renaming .wav.wav to .wav in {processed_dir}")
+
+    print(f"Combining ...")
     # Fix double .wav extension from infer_cli_dir outputs
     for fname in os.listdir(processed_dir):
         if fname.endswith('.wav.wav'):
@@ -326,8 +334,11 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
     batch_concat_python(all_segments, final_output=final_output_path)
 
-    # remove temp_dir
-    # shutil.rmtree(temp_dir)
+    print(f"Cleaning up temporary files...")
+    # cleanup temp_dir
+    shutil.rmtree(file_temp_dir, ignore_errors=True)
+
+    return final_output_path
 
 def batch_concat_python(files, final_output):
     """
@@ -358,7 +369,7 @@ def batch_concat_python(files, final_output):
 
     # Export mixed result
     mixed.export(final_output, format='wav')
-    safe_print(f"[PYTHON CONCAT] Created {final_output} using pydub mix.")
+    safe_print(f"Created {final_output}.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process audio files by splitting into silence and non-silence segments.')
