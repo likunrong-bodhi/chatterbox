@@ -1,0 +1,40 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: chatterbox 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_TW\n"
+
+#: app.py
+default
+msgid "# Chatterbox Voice Conversion Batch Tool"
+msgstr "# Chatterbox 語音轉換批次工具"
+
+msgid "Input File or Directory"
+msgstr "輸入檔案或目錄"
+
+msgid "Path to input audio file or directory with audio files"
+msgstr "輸入音訊檔案或包含音訊檔案的目錄路徑"
+
+msgid "Output Directory"
+msgstr "輸出目錄"
+
+msgid "Path to save output files"
+msgstr "儲存輸出檔案的路徑"
+
+msgid "Refresh Target Files List"
+msgstr "重新整理目標檔案列表"
+
+msgid "Target Voice File (from target dir)"
+msgstr "目標音色檔案（來自目標目錄）"
+
+msgid "Run Voice Conversion"
+msgstr "執行語音轉換"
+
+msgid "Result"
+msgstr "結果"
+
+msgid "Language"
+msgstr "語言"
+
+msgid "Please provide all required fields."
+msgstr "請填寫所有必填欄位。"

@@ -1,0 +1,40 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: chatterbox 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+#: app.py
+default
+msgid "# Chatterbox Voice Conversion Batch Tool"
+msgstr "# Chatterbox Voice Conversion Batch Tool"
+
+msgid "Input File or Directory"
+msgstr "Input File or Directory"
+
+msgid "Path to input audio file or directory with audio files"
+msgstr "Path to input audio file or directory with audio files"
+
+msgid "Output Directory"
+msgstr "Output Directory"
+
+msgid "Path to save output files"
+msgstr "Path to save output files"
+
+msgid "Refresh Target Files List"
+msgstr "Refresh Target Files List"
+
+msgid "Target Voice File (from target dir)"
+msgstr "Target Voice File (from target dir)"
+
+msgid "Run Voice Conversion"
+msgstr "Run Voice Conversion"
+
+msgid "Result"
+msgstr "Result"
+
+msgid "Language"
+msgstr "Language"
+
+msgid "Please provide all required fields."
+msgstr "Please provide all required fields."

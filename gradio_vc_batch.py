@@ -1,10 +1,9 @@
 import gradio as gr
 import os
 import sys
-import tempfile
-import shutil
-import subprocess
 import importlib.util
+from i18n import install, available_languages
+from utils import get_audio_files
 
 # Import process_audio_files from dir_vc.py dynamically
 spec = importlib.util.spec_from_file_location("dir_vc", os.path.join(os.path.dirname(__file__), "dir_vc.py"))
@@ -12,12 +11,9 @@ dir_vc = importlib.util.module_from_spec(spec)
 sys.modules["dir_vc"] = dir_vc
 spec.loader.exec_module(dir_vc)
 
-
-def get_audio_files(directory):
-    if not os.path.isdir(directory):
-        return []
-    return [f for f in os.listdir(directory) if f.lower().endswith(('.wav', '.mp3'))]
-
+# Install default language at startup
+install("en")
+_ = _
 
 # Streaming log output to Gradio UI
 import threading
@@ -94,49 +90,96 @@ def update_target_files(target_dir):
 
 
 def gradio_ui(target_dir):
+    def on_change_language(lang):
+        trans = install(lang)
+        _ = trans.gettext
+        return (
+            gr.update(value=_('# Chatterbox Voice Conversion Batch Tool')),
+            gr.update(label=_('Input File or Directory'), placeholder=_('Path to input audio file or directory with audio files')),
+            gr.update(label=_('Output Directory'), placeholder=_('Path to save output files')),
+            gr.update(value=_('Refresh Target Files List')),
+            gr.update(label=_('Target Voice File (from target dir)')),
+            gr.update(value=_('Run Voice Conversion')),
+            gr.update(label=_('Result')),
+            gr.update(label=_('Language'))
+        )
+
+    def on_refresh_files(_click=None):
+        return gr.update(choices=get_audio_files(target_dir))
+
     with gr.Blocks() as demo:
-        gr.Markdown("# Chatterbox Voice Conversion Batch Tool")
-        # Add JS for localStorage persistence of input_dir, output_dir, and target_file
-        input_dir = gr.Textbox(label="Input File or Directory", placeholder="Path to input audio file or directory with audio files")
-        output_dir = gr.Textbox(label="Output Directory", placeholder="Path to save output files")
-        refresh_btn = gr.Button("Refresh Target Files List")
-        target_file = gr.Dropdown(label="Target Voice File (from target dir)", choices=get_audio_files(target_dir), interactive=True)
-        run_btn = gr.Button("Run Voice Conversion")
-
-        result = gr.HTML(label="Result", elem_id="result_html")
-        # Add custom CSS for minimum height using a style HTML block
-        
-        # ✅ 新增：用于多文件下载的组件（Gradio 4 推荐用 gr.Files）
+        with gr.Row():
+            with gr.Column(scale=2):
+                title_md = gr.Markdown(_('# Chatterbox Voice Conversion Batch Tool'))
+            with gr.Column(scale=1):
+                lang_dd = gr.Dropdown(
+                    choices=available_languages(),
+                    value="en",
+                    label=_('Language'),
+                    scale=0
+                )
+        input_dir = gr.Textbox(
+            label=_('Input File or Directory'),
+            placeholder=_('Path to input audio file or directory with audio files')
+        )
+        output_dir = gr.Textbox(
+            label=_('Output Directory'),
+            placeholder=_('Path to save output files')
+        )
+        refresh_btn = gr.Button(_('Refresh Target Files List'))
+        target_file = gr.Dropdown(
+            label=_('Target Voice File (from target dir)'),
+            choices=get_audio_files(target_dir),
+            interactive=True
+        )
+        run_btn = gr.Button(_('Run Voice Conversion'))
+        result = gr.HTML(label=_('Result'), elem_id="result_html")
         try:
-            downloads = gr.Files(label="Download Outputs")  # Gradio 4+
+            downloads = gr.Files(label="Download Outputs")
         except Exception:
-            # 如果你在 Gradio 3，可退化为 gr.File(file_count="multiple")
             downloads = gr.File(label="Download Outputs", file_count="multiple")
-
         gr.HTML("""
         <style>
         #result_html {
             min-height: 200px;
         }
+        /* Hide Gradio footer and settings */
+        footer, .svelte-1ipelgc, .svelte-1ipelgc *, .gradio-container .fixed.bottom-4.right-4, .gradio-container .fixed.bottom-4.left-4 {
+            display: none !important;
+        }
         </style>
         """)
 
-        # 1) On load: restore values from localStorage into the components
+        lang_dd.change(
+            on_change_language,
+            inputs=lang_dd,
+            outputs=[title_md, input_dir, output_dir, refresh_btn, target_file, run_btn, result, lang_dd]
+        )
+        refresh_btn.click(
+            on_refresh_files,
+            inputs=None,
+            outputs=target_file
+        )
+
+        # 1) On load: restore values from localStorage into the components (including language)
         demo.load(
             fn=None,
             inputs=None,
-            outputs=[input_dir, output_dir, target_file],
+            outputs=[lang_dd, input_dir, output_dir, target_file],
             js="""
         () => {
-        const inDir = localStorage.getItem('vc_input_dir') || "";
-        const outDir = localStorage.getItem('vc_output_dir') || "";
-        const target = localStorage.getItem('vc_target_file') || null;
-        return [inDir, outDir, target];
+            const lang = localStorage.getItem('vc_lang') || "en";
+            const inDir = localStorage.getItem('vc_input_dir') || "";
+            const outDir = localStorage.getItem('vc_output_dir') || "";
+            const target = localStorage.getItem('vc_target_file') || null;
+            return [lang, inDir, outDir, target];
         }
         """
         )
-
-        # 2) On change: persist values back to localStorage
+        lang_dd.change(
+            fn=None, inputs=lang_dd, outputs=None,
+            js="(v) => { if (v !== undefined && v !== null) localStorage.setItem('vc_lang', v); }"
+        )
         input_dir.change(
             fn=None, inputs=input_dir, outputs=None,
             js="(v) => { localStorage.setItem('vc_input_dir', v ?? ''); }"
@@ -150,15 +193,9 @@ def gradio_ui(target_dir):
             js="(v) => { if (v !== undefined && v !== null) localStorage.setItem('vc_target_file', v); }"
         )
 
-        def on_refresh():
-            return update_target_files(target_dir)
-
-        refresh_btn.click(on_refresh, inputs=[], outputs=[target_file])
-
         def on_run(input_dir, output_dir, target_file):
             if not input_dir or not output_dir or not target_file:
-                # result / downloads / run_btn
-                yield gr.update(value="Please provide all required fields."), gr.update(value=[]), gr.update(interactive=True)
+                yield gr.update(value=_('Please provide all required fields.')), gr.update(value=[]), gr.update(interactive=True)
                 return
             target_voice_path = os.path.join(target_dir, target_file)
             gen = run_voice_conversion(input_dir, output_dir, target_voice_path)
