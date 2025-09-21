@@ -177,13 +177,15 @@ def synthesize_cues(
         if ref_audio_path:
             kwargs["audio_prompt_path"] = ref_audio_path
 
+        print(f"Synthesizing {cues.index(cue)+1} of {len(cues)}: \"{cue.text}\"")
+
         wav = model.generate(cue.text, **kwargs)
         wav = ensure_mono(wav)
         # Ensure sample rate consistency; if model has sr attribute, prefer that
         # but we trust the provided sr parameter here.
         ta.save(out_path, wav, sr)
         results.append((cue, out_path, wav))
-        print(f"Synthesized cue {cue.index} -> {out_path} ({wav.shape[-1]/sr:.2f}s)")
+        print(f"Synthesized > {out_path} ({wav.shape[-1]/sr:.2f}s)")
 
     return results
 
@@ -245,10 +247,53 @@ def main():
 
     srt_dir = os.path.dirname(input)
     srt_stem = os.path.splitext(os.path.basename(input))[0]
-    temp_dir_name = f"{srt_stem}_tts_{reference_stem}_temp"
-    temp_dir = os.path.join(srt_dir, temp_dir_name)
+    #temp_dir_name = f"{srt_stem}_tts_{reference_stem}_temp"
+    #temp_dir = os.path.join(srt_dir, temp_dir_name)
 
     out_wav = os.path.join(srt_dir, f"{srt_stem}_tts_{reference_stem}.wav")
+
+    run_srt_tts(
+        input_path=args.input,
+        reference_audio=args.reference_audio,
+        language_id=args.language_id,
+        multilingual=args.multilingual,
+        out_wav=out_wav,
+        log_callback=print,
+    )
+
+def run_srt_tts(
+    input_path,
+    reference_audio=None,
+    language_id="en",
+    multilingual=False,
+    out_wav=None,
+    log_callback=None,
+):
+    """
+    Run SRT/TXT TTS as a function. Returns output wav path and logs.
+    log_callback: optional function to receive log lines (for streaming to UI)
+    """
+    logs = []
+    def log(msg):
+        if log_callback:
+            log_callback(msg + "\n")
+        logs.append(msg)
+
+    input = os.path.abspath(input_path)
+    if not os.path.isfile(input):
+        log(f"Error: SRT file not found: {input}")
+        return None, "\n".join(logs)
+
+    if not (input.lower().endswith(".srt") or input.lower().endswith(".txt")):
+        log(f"Error: Input file must be .srt or .txt: {input}")
+        return None, "\n".join(logs)
+
+    reference_stem = os.path.splitext(os.path.basename(reference_audio))[0] if reference_audio else 'noRef'
+
+    srt_dir = os.path.dirname(input)
+    srt_stem = os.path.splitext(os.path.basename(input))[0]
+    temp_dir_name = f"{srt_stem}_tts_{reference_stem}_temp"
+    temp_dir = os.path.join(srt_dir, temp_dir_name)
 
     # if file ends with .txt, parse as txt
     if input.lower().endswith(".txt"):
@@ -257,15 +302,15 @@ def main():
         cues = parse_srt(input)
 
     if not cues:
-        print("No cues parsed from input; exiting.")
-        sys.exit(1)
+        log("No cues parsed from input; exiting.")
+        return None, "\n".join(logs)
 
-    print(f"Parsed {len(cues)} cues from {input}")
+    log(f"Parsed {len(cues)} cues from {input}")
 
     # Device + model
     device = pick_device()
-    print(f"Using device: {device}")
-    model = load_tts(args.multilingual, device)
+    log(f"Using device: {device}")
+    model = load_tts(multilingual, device)
     sr = getattr(model, "sr", 24000)  # fallback
 
     # Synthesize per cue
@@ -274,8 +319,8 @@ def main():
         model=model,
         sr=sr,
         temp_dir=temp_dir,
-        language_id=args.language_id,
-        ref_audio_path=args.reference_audio,
+        language_id=language_id,
+        ref_audio_path=reference_audio,
     )
 
     # Stitch
@@ -283,9 +328,9 @@ def main():
     ta.save(out_wav, final_wav, sr)
 
     total_dur = final_wav.shape[-1] / sr if final_wav.numel() > 0 else 0.0
-    print(f"\nDone. Wrote final WAV: {out_wav}  (duration: {total_dur:.2f}s)")
-    print(f"Per-line WAVs are in: {temp_dir}")
-
+    log(f"\nDone. Wrote final WAV: {out_wav}  (duration: {total_dur:.2f}s)")
+    log(f"Per-line WAVs are in: {temp_dir}")
+    return out_wav, "\n".join(logs)
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,27 @@
+msgid "Reference Audio (from target dir)"
+msgstr "Reference Audio (from target dir)"
+msgid "Refresh Reference Files List"
+msgstr "Refresh Reference Files List"
+
+msgid "Run TTS"
+msgstr "Run TTS"
+msgid "# Chatterbox SRT/TXT TTS Tool"
+msgstr "# Chatterbox SRT/TXT TTS Tool"
+
+msgid "Input SRT/TXT File"
+msgstr "Input SRT/TXT File"
+
+msgid "Reference Voice (optional)"
+msgstr "Reference Voice (optional)"
+
+msgid "Language ID"
+msgstr "Language ID"
+
+msgid "Multilingual Model"
+msgstr "Multilingual Model"
+
+msgid "Run SRT/TXT TTS"
+msgstr "Run SRT/TXT TTS"
 msgid ""
 msgstr ""
 "Project-Id-Version: chatterbox 1.0\n"

@@ -1,3 +1,27 @@
+msgid "Reference Audio (from target dir)"
+msgstr "參考音訊（來自目標目錄）"
+msgid "Refresh Reference Files List"
+msgstr "重新整理參考檔案列表"
+
+msgid "Run TTS"
+msgstr "執行語音合成"
+msgid "# Chatterbox SRT/TXT TTS Tool"
+msgstr "# Chatterbox SRT/TXT 語音合成工具"
+
+msgid "Input SRT/TXT File"
+msgstr "輸入 SRT/TXT 檔案"
+
+msgid "Reference Voice (optional)"
+msgstr "參考音色（選填）"
+
+msgid "Language ID"
+msgstr "語言 ID"
+
+msgid "Multilingual Model"
+msgstr "多語言模型"
+
+msgid "Run SRT/TXT TTS"
+msgstr "執行 SRT/TXT 語音合成"
 msgid ""
 msgstr ""
 "Project-Id-Version: chatterbox 1.0\n"
