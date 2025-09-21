@@ -132,7 +132,8 @@ class Conditionals:
 
 class ChatterboxMultilingualTTS:
     ENC_COND_LEN = 6 * S3_SR
-    DEC_COND_LEN = 10 * S3GEN_SR
+    #DEC_COND_LEN = 10 * S3GEN_SR
+    DEC_COND_LEN = 30 * S3GEN_SR
 
     def __init__(
         self,
