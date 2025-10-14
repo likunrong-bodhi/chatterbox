@@ -73,10 +73,17 @@ def run_voice_conversion(input_dir, output_dir, target_voice_path, progress=gr.P
                 result_html = f"<h2>Processing complete.</h2> Output files:<br>{links_html}<br><pre>{logs}</pre>"
 
                 # ✅ downloads 传入“文件路径列表”
+                # Handle downloads: only allow files in cwd or temp, else leave empty
+                if len(abs_paths) == 1 and os.path.dirname(abs_paths[0]) in (os.getcwd(), os.getenv('TEMP'), os.getenv('TMP')):
+                    downloads_update = gr.update(value=abs_paths[0])
+                elif all(os.path.dirname(p) in (os.getcwd(), os.getenv('TEMP'), os.getenv('TMP')) for p in abs_paths):
+                    downloads_update = gr.update(value=abs_paths)
+                else:
+                    downloads_update = gr.update(value=[])
                 yield (
                     gr.update(value=result_html),        # result
-                    gr.update(value=abs_paths),          # ✅ downloads 用“文件路径列表”
-                    gr.update(interactive=True)          # run_btn
+                    downloads_update,                    # downloads
+                    gr.update(interactive=True)           # run_btn
                 )
         except Exception as e:
             err = f"Error: {str(e)}\n<pre>{logs}</pre>"
