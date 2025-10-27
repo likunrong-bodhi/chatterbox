@@ -56,6 +56,7 @@ def run_voice_conversion(input_dir, output_dir, target_voice_path, progress=gr.P
                         logs += chunk
                         # 返回顺序要和 outputs 对齐（见第 3 步），downloads 用 gr.update() 占位
                         yield (
+                            True,
                             gr.update(value=f"<pre>{logs}</pre>"),  # result (HTML)
                             gr.update(value=None),                  # downloads (Files) —— 只占位
                             gr.update(interactive=False)            # run_btn
@@ -66,7 +67,7 @@ def run_voice_conversion(input_dir, output_dir, target_voice_path, progress=gr.P
             # ⬇️ 处理完成：同时更新 HTML 和 downloads
             if not output_files:
                 msg = f"No output files generated.\n<pre>{logs}</pre>"
-                yield gr.update(value=msg), gr.update(value=[]), gr.update(interactive=True)
+                yield False, gr.update(value=msg), gr.update(value=[]), gr.update(interactive=True)
             else:
                 abs_paths = [os.path.abspath(f) for f in output_files]
                 links_html = "<br>".join(f"<div>{p}</div>" for p in abs_paths)
@@ -81,6 +82,7 @@ def run_voice_conversion(input_dir, output_dir, target_voice_path, progress=gr.P
                 else:
                     downloads_update = gr.update(value=[])
                 yield (
+                    True,
                     gr.update(value=result_html),        # result
                     downloads_update,                    # downloads
                     gr.update(interactive=True)           # run_btn
@@ -88,13 +90,48 @@ def run_voice_conversion(input_dir, output_dir, target_voice_path, progress=gr.P
         except Exception as e:
             err = f"Error: {str(e)}\n<pre>{logs}</pre>"
             # 失败时清空 downloads
-            yield gr.update(value=err), gr.update(value=[]), gr.update(interactive=True)
+            yield False, gr.update(value=err), gr.update(value=[]), gr.update(interactive=True)
     return generator
 
 def update_target_files(target_dir):
     files = get_audio_files(target_dir)
     return gr.update(choices=files, value=files[0] if files else None)
 
+# BEGIN File dialog functions
+def open_select_dir_dialog(preferred_dir: str = None):
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    return filedialog.askdirectory(initialdir=preferred_dir)
+
+def open_select_file_dialog(extension: str = None, preferred_dir: str = None):
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    return filedialog.askopenfilename(initialdir=preferred_dir, filetypes=[(f"{extension} files", f"*.{extension}")])
+#END file dialog functions
+# BEGIN shown success/fail
+def on_infer_button_click():
+    """right after button clicked, change ui status
+
+    Returns:
+        status of changed ui elements
+    """
+    return gr.update(visible=False), gr.update(visible=False)
+
+def handle_infer_ui_result(success):
+    """
+    Handle the result of the inference UI operation.
+    
+    :param success: Boolean indicating if the operation was successful.
+    :param result: The output message from the operation.
+    :return: Tuple of updates for success and error spans, and the result text area.
+    """
+    print(f'try update success as {success}, {not success}')
+    return gr.update(visible=success), gr.update(visible=not success)
+# END shown success/fail
 
 def gradio_ui(target_dir):
     def on_change_language(lang):
@@ -125,14 +162,28 @@ def gradio_ui(target_dir):
                     label=_('Language'),
                     scale=0
                 )
-        input_dir = gr.Textbox(
-            label=_('Input File or Directory'),
-            placeholder=_('Path to input audio file or directory with audio files')
-        )
-        output_dir = gr.Textbox(
-            label=_('Output Directory'),
-            placeholder=_('Path to save output files')
-        )
+        with gr.Row():
+            input_dir = gr.Textbox(
+                label=_('Input File or Directory'),
+                placeholder=_('Path to input audio file or directory with audio files')
+            )
+            input_browse_button = gr.Button(_('Browse'))
+            input_browse_button.click(
+                fn=open_select_dir_dialog,
+                inputs=input_dir,
+                outputs=input_dir
+            )
+        with gr.Row():
+            output_dir = gr.Textbox(
+                label=_('Output Directory'),
+                placeholder=_('Path to save output files')
+            )
+            output_browse_button = gr.Button(_('Browse'))
+            output_browse_button.click(
+                fn=open_select_dir_dialog,
+                inputs=output_dir,
+                outputs=output_dir
+            )
         refresh_btn = gr.Button(_('Refresh Target Files List'))
         target_file = gr.Dropdown(
             label=_('Target Voice File (from target dir)'),
@@ -140,7 +191,14 @@ def gradio_ui(target_dir):
             interactive=True
         )
         run_btn = gr.Button(_('Run Voice Conversion'))
-        result = gr.HTML(label=_('Result'), elem_id="result_html")
+        with gr.Row():
+            with gr.Column(scale=1):
+                success_span = gr.HTML(label=_("Success"), value="<span style='font-size: 5rem; color: transparent; text-shadow: 0 0 0 green;'>✔️</span>", visible=False)
+                error_span = gr.HTML(label=_("Error"), value="<span style='font-size: 5rem; color: transparent; text-shadow: 0 0 0 red;'>❌</span>", visible=False)
+                # full_log_path = gr.Textbox(label=_("Log"), value=log_file, interactive=False).style(show_copy_button=True)
+            is_success = gr.Checkbox(visible=False)
+            with gr.Column(scale=4):
+                result = gr.HTML(label=_('Result'), elem_id="result_html")
         try:
             downloads = gr.Files(label="Download Outputs")
         except Exception:
@@ -210,12 +268,20 @@ def gradio_ui(target_dir):
                 yield update
 
         run_btn.click(
+            on_infer_button_click,
+            inputs=None,
+            outputs=[success_span, error_span],
+        ).then(
             on_run,
             inputs=[input_dir, output_dir, target_file],
-            outputs=[result, downloads, run_btn],
+            outputs=[is_success, result, downloads, run_btn],
             preprocess=False,
             show_progress=True,
             queue=True,
+        ).then(
+            fn=handle_infer_ui_result,
+            inputs=[is_success],
+            outputs=[success_span, error_span]
         )
 
     return demo
