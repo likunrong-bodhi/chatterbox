@@ -193,40 +193,47 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
     if current_time < total_duration:
         segments.append((current_time, total_duration, 'non_silence'))
 
-    # 5) MERGE SHORT SEGMENTS
-    # goal: no segment shorter than MIN_SEGMENT_DURATION
-    # strategy: walk through and if short, merge into previous; if no previous, merge into next.
-    # segments is already built like:
-    # segments = [(start, end, seg_type), ...]
+    # 5) MERGE PASS
+    # rule: if segment is non_silence and < MIN, keep merging forward (even silence) until >= MIN
     merged_segments = []
     i = 0
     n = len(segments)
 
     while i < n:
         start, end, seg_type = segments[i]
-        # we always keep the ORIGINAL start of this segment
-        cur_start = start
-        cur_end = end
-        cur_type = seg_type
 
-        # grow this segment forward until it's long enough
-        while (cur_end - cur_start) < MIN_SEGMENT_DURATION and (i + 1) < n:
-            next_start, next_end, next_type = segments[i + 1]
+        log_message(f'[{i}/{n}] {start}-{end} ({seg_type})')
+        if seg_type == 'non_silence':
+            # start a speech block
+            cur_start = start
+            cur_end = end
 
-            # extend current to include the next segment
-            cur_end = next_end
-            # we **do not** change cur_start
-            # we **can** keep the first segment's type, or we can decide rules here
-            log_message(
-                f"[INFO] Merging short segment forward: "
-                f"{cur_start}-{next_end} now {(cur_end - cur_start):.2f}s "
-                f"(added {next_start}-{next_end} [{next_type}])"
-            )
-            i += 1  # we've consumed the next segment, continue loop
+            # grow forward until we reach MIN or run out
+            while (cur_end - cur_start) < MIN_SEGMENT_DURATION and (i + 1) < n:
+                next_start, next_end, next_type = segments[i + 1]
 
-        # now cur_start..cur_end is either >= MIN, or it's the last chunk
-        merged_segments.append([cur_start, cur_end, cur_type])
-        i += 1
+                if(next_type == 'silence' and (next_end - cur_start) > MIN_SEGMENT_DURATION):
+                    # if the next segment is silence and merging it would exceed MIN_SEGMENT_DURATION,
+                    # we just break here to avoid over-merging
+                    break
+
+                # always merge, even if it's silence
+                cur_end = next_end
+                log_message(
+                    f"[INFO] Extending non_silence {cur_start}-{cur_end} with {next_start}-{next_end} ({next_type}) "
+                    f"→ now {cur_end - cur_start:.2f}s"
+                )
+                i += 1  # we consumed that next segment
+
+            # final type MUST be non_silence
+            merged_segments.append((cur_start, cur_end, 'non_silence'))
+            i += 1
+
+        else:
+            # seg_type == 'silence'
+            # for silence we just keep it as-is (you *could* add a separate min here later)
+            merged_segments.append((start, end, 'silence'))
+            i += 1
 
     # edge case: if the VERY FIRST segment was short, the above puts it in merged_segments anyway.
     # But if you prefer "merge first short into next", we’d need a second pass.
@@ -307,6 +314,9 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
     # Create a subdirectory for segments from this file.
     file_temp_dir = os.path.join(temp_dir, base_name)
+    os.makedirs(file_temp_dir, exist_ok=True)
+    # remove everything under file_temp_dir, but leave the directory itself
+    shutil.rmtree(file_temp_dir)
     os.makedirs(file_temp_dir, exist_ok=True)
 
     # Split the file into silence and non-silence segments.
