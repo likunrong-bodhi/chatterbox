@@ -1,0 +1,67 @@
+msgid "Reference Audio (from target dir)"
+msgstr "참조 오디오 (대상 디렉터리에서)"
+
+msgid "Refresh Reference Files List"
+msgstr "참조 파일 목록 새로 고침"
+
+msgid "Run TTS"
+msgstr "음성 합성 실행"
+
+msgid "# Chatterbox SRT/TXT TTS Tool"
+msgstr "# Chatterbox SRT/TXT 음성 합성 도구"
+
+msgid "Input SRT/TXT File"
+msgstr "SRT/TXT 파일 입력"
+
+msgid "Reference Voice (optional)"
+msgstr "참조 음성 (선택 사항)"
+
+msgid "Language ID"
+msgstr "언어 ID"
+
+msgid "Multilingual Model"
+msgstr "다국어 모델"
+
+msgid "Run SRT/TXT TTS"
+msgstr "SRT/TXT 음성 합성 실행"
+
+msgid ""
+msgstr ""
+"Project-Id-Version: chatterbox 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ko_KR\n"
+
+#: app.py
+default
+msgid "# Chatterbox Voice Conversion Batch Tool"
+msgstr "# Chatterbox 음성 변환 배치 도구"
+
+msgid "Input File or Directory"
+msgstr "입력 파일 또는 디렉터리"
+
+msgid "Path to input audio file or directory with audio files"
+msgstr "입력 오디오 파일 경로 또는 오디오 파일이 포함된 디렉터리"
+
+msgid "Output Directory"
+msgstr "출력 디렉터리"
+
+msgid "Path to save output files"
+msgstr "출력 파일을 저장할 경로"
+
+msgid "Refresh Target Files List"
+msgstr "대상 파일 목록 새로 고침"
+
+msgid "Target Voice File (from target dir)"
+msgstr "대상 음성 파일 (대상 디렉터리에서)"
+
+msgid "Run Voice Conversion"
+msgstr "음성 변환 실행"
+
+msgid "Result"
+msgstr "결과"
+
+msgid "Language"
+msgstr "언어"
+
+msgid "Please provide all required fields."
+msgstr "모든 필수 항목을 입력해 주세요."
