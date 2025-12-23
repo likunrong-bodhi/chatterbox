@@ -284,8 +284,11 @@ def process_audio_files(input, output_dir, target_voice_path, continue_job=False
     else:
         device = "cpu"
 
-    print(f"Using device: {device}")
+    load_model_begin_time = datetime.datetime.now()
+    print(f"{load_model_begin_time} Using device: {device}")
     model = ChatterboxVC.from_pretrained(device)
+    load_model_end_time = datetime.datetime.now()
+    print(f"{load_model_end_time} Model loaded, duration: {load_model_end_time - load_model_begin_time}")
 
     output_files = []
 
@@ -307,7 +310,8 @@ def process_audio_files(input, output_dir, target_voice_path, continue_job=False
     return output_files
 
 def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_path, model, continue_job):
-    print(f"Processing file: {filename}, using target voice: {target_voice_path}")
+    begin_time = datetime.datetime.now()
+    print(f"{begin_time} Processing file: {filename}, using target voice: {target_voice_path}")
 
     input_file = os.path.join(input_dir, filename)
     base_name, _ = os.path.splitext(filename)
@@ -336,20 +340,26 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
             dst = os.path.join(processed_dir, fname)
             shutil.move(src, dst)
 
+    end_time = datetime.datetime.now()
+    print(f"{end_time} Finished splitting segments for file: {filename}, duration: {end_time - begin_time}")
+
     # model processing
     wav_files = [file for file in os.listdir(file_temp_dir) if file.endswith(".wav")]
     total = len(wav_files)
     for idx, file in enumerate(wav_files, 1):
-        print(f"Processing {idx}/{total}: {file}")
+        processing_begin_time = datetime.datetime.now()
+        print(f"{processing_begin_time} Processing {idx}/{total}: {file}")
         wav = model.generate(
             audio=os.path.join(file_temp_dir, file),
             target_voice_path=target_voice_path,
         )
         output_path = os.path.join(processed_dir, file)
         ta.save(output_path, wav, model.sr)
+        processing_end_time = datetime.datetime.now()
+        print(f"{processing_end_time} Finished {idx}/{total}: {file}, duration: {processing_end_time - processing_begin_time}")
 
-
-    print(f"Combining ...")
+    combined_begin_time = datetime.datetime.now()
+    print(f"{combined_begin_time} Combining ...")
     # Fix double .wav extension from infer_cli_dir outputs
     for fname in os.listdir(processed_dir):
         if fname.endswith('.wav.wav'):
@@ -386,6 +396,9 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
     print(f"Cleaning up temporary files...")
     # cleanup temp_dir
     shutil.rmtree(file_temp_dir, ignore_errors=True)
+
+    combined_end_time = datetime.datetime.now()
+    print(f"{combined_end_time} Finished combining for file: {filename}, duration: {combined_end_time - combined_begin_time}")
 
     return final_output_path
 
