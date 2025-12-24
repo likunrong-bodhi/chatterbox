@@ -18,17 +18,19 @@ RVC_PATH = os.path.dirname(os.path.realpath(__file__))
 LOG_FILE = os.path.join(RVC_PATH, "run_infer.log")
 log_file = None
 
-# (Optional) Duration constraints—you may use them later if needed.
-MIN_SEGMENT_DURATION = 30  # 30 seconds to avoid too short segments
-MAX_SEGMENT_DURATION = 180  # 3 minutes , not used
+#check _reference_duration_vs_process-time.csv to set these values
+MIN_SEGMENT_DURATION = 45  # to avoid too short segments; soft limatation (if conflict with max_segment_duration this value wont be used)
+MAX_SEGMENT_DURATION = 60  # to avoid too long segments; hard limitation
 
-def log_message(message, level="INFO"):
+def log_message(message, level="INFO", printthis: bool = True):
     global log_file
     if log_file is None:
         log_file = LOG_FILE
         print(f"[WARNING] using default log file: {log_file}")
     with open(log_file, "a", encoding='utf-8') as log_fd:
         log_fd.write(f"[{level}] {message}\n")
+    if printthis:
+        safe_print(f"[{level}] {message}")
         
 def safe_print(message):
     """Prints a message to the console, ensuring it is safe for all environments."""
@@ -111,34 +113,76 @@ def append_silence(input_file: str, append_duration: float, sample_rate: int, ch
 
     return output_file
 
-# Practical Examples
-# Setting	Expected Behavior
-# -40dB, d=0.5	Very aggressive: Cuts on very small gaps, even if there’s low noise.
-# -30dB, d=1	Moderate (your current setting): Good for clean recordings, but can overcut in noisy ones.
-# -25dB, d=2	More tolerant: Best if your audio has background hum or short pauses.
-# -20dB, d=3	Very tolerant: Cuts only on long, obvious silence.
+def extract_audio_segment(input_file: str, start_time: float, duration: float, output_file: str, continue_job=False) -> bool:
+    """
+    Extracts a segment from the input audio file using ffmpeg.
+
+    Args:
+        input_file (str): Path to the input audio file (wav or mp3).
+        start_time (float): Start time of the segment in seconds.
+        duration (float): Duration of the segment in seconds.
+        output_file (str): Path to save the extracted segment.
+        continue_job (bool): If True, skips processing if output_file already exists.
+
+    Returns:
+        bool: True if extraction is successful, False otherwise.
+    """
+    #if output_file already exists, skip it
+    if continue_job and os.path.exists(output_file):
+        print(f"Skipping extraction of segment {output_file} because it already exists", file=sys.stdout)
+        return True
+
+    ffmpeg_extract_cmd = [
+        'ffmpeg', '-y', '-i', input_file, '-ss', str(start_time), '-t', str(duration),
+        '-c', 'copy', output_file
+    ]
+    print(f'RUN extract segment => from: {start_time}; length: {duration}', file=sys.stdout)
+    try:
+        subprocess.run(ffmpeg_extract_cmd, check=True, encoding='utf-8', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[Error] extracting segment: {e}", file=sys.stderr)
+        return False
+
 def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-20, silence_duration=1.5, continue_job=False, padding_sec=0.1):
+    """
+    Splits the input audio file into segments labeled as 'silence' and 'non_silence'
+    using ffmpeg's silencedetect filter.
+    
+    Args:
+        input_file (str): Path to the input audio file (wav or mp3).
+        temp_dir (str): Directory to store the extracted segments.
+        noise_threshold (int): Silence threshold in dB.
+        silence_duration (float): Minimum duration of silence to detect in seconds.
+        continue_job (bool): If True, skips processing segments that already exist.
+        padding_sec (float): Padding duration in seconds to add around non-silence segments.
+
+    Returns:
+        tuples: (segment_file, segment_type, start_time, end_time)
+
+    Example:
+    noise_threshold, silence_duration, Expected Behavior
+    * -40dB, d=0.5	Very aggressive: Cuts on very small gaps, even if there’s low noise.
+    * -30dB, d=1	Moderate (your current setting): Good for clean recordings, but can overcut in noisy ones.
+    * -25dB, d=2	More tolerant: Best if your audio has background hum or short pauses.
+    * -20dB, d=3	Very tolerant: Cuts only on long, obvious silence.
+    """
     # Get total duration of the input file.
     duration_cmd = [
         'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
         '-of', 'default=noprint_wrappers=1:nokey=1', input_file
     ]
-    total_duration = float(subprocess.run(duration_cmd, stdout=subprocess.PIPE, text=True, check=True).stdout.strip())
-    log_message(f'BEGIN file => {input_file}')
-    log_message(f'\t=> total_duration: {total_duration}')
+    log_message(f'RUN get file duration: {input_file}', printthis=False)
+    total_duration = float(subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', check=True).stdout.strip())
+    log_message(f'BEGIN file => {input_file}', printthis=False)
+    log_message(f'\t=> total_duration: {total_duration}', printthis=False)
 
-    """
-    Splits the input audio file into segments labeled as 'silence' and 'non_silence'
-    using ffmpeg's silencedetect filter.
-    
-    Returns a list of tuples: (segment_file, segment_type, start_time, end_time)
-    """
     # Run ffmpeg silencedetect to get silence intervals.
     silence_cmd = [
         'ffmpeg', '-i', input_file, '-af',
         f'silencedetect=noise={noise_threshold}dB:d={silence_duration}', '-f', 'null', '-'
     ]
-
+    log_message(f'RUN get file silence intervals: {input_file}', printthis=False)
     result = subprocess.run(silence_cmd, stderr=subprocess.PIPE, text=True, check=True, encoding='utf-8')
     
     # Parse the stderr output to get pairs of silence_start and silence_end.
@@ -167,9 +211,9 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
     # Create segments: non-silence segments are between silence intervals.
     segments = []  # Each element is (start_time, end_time, segment_type)
     current_time = 0.0
-    log_message(f'BEGIN RAW silence_intervals')
+    log_message(f'BEGIN RAW silence_intervals', printthis=True)
     for (silence_start, silence_end) in silence_intervals:
-        log_message(f'{silence_start}\t{silence_end}')
+        log_message(f'{silence_start}\t{silence_end}', printthis=False)
         adjust_silence_start = silence_start
         adjust_silence_end = silence_end
         #adjust silence_start and silence_end
@@ -188,7 +232,7 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
         # Add the silence segment.
         segments.append((adjust_silence_start, adjust_silence_end, 'silence'))
         current_time = adjust_silence_end
-    log_message(f'END RAW silence_intervals')
+    log_message(f'END RAW silence_intervals', printthis=True)
     # If there is audio after the last silence, add it.
     if current_time < total_duration:
         segments.append((current_time, total_duration, 'non_silence'))
@@ -199,6 +243,7 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
     i = 0
     n = len(segments)
 
+    log_message(f'BEGIN segments of {input_file}', printthis=True)
     while i < n:
         start, end, seg_type = segments[i]
 
@@ -211,8 +256,12 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
             # grow forward until we reach MIN or run out
             while (cur_end - cur_start) < MIN_SEGMENT_DURATION and (i + 1) < n:
                 next_start, next_end, next_type = segments[i + 1]
+                new_duration = next_end - cur_start
 
-                if(next_type == 'silence' and (next_end - cur_start) > MIN_SEGMENT_DURATION):
+                if MAX_SEGMENT_DURATION < new_duration:
+                    # if merging next segment would exceed MAX_SEGMENT_DURATION, we break here
+                    break
+                if(next_type == 'silence' and MIN_SEGMENT_DURATION < new_duration):
                     # if the next segment is silence and merging it would exceed MIN_SEGMENT_DURATION,
                     # we just break here to avoid over-merging
                     break
@@ -241,28 +290,34 @@ def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-2
 
     # Extract each segment to its own file.
     extracted_segments = []
-    log_message(f'BEGIN segments')
+    file_index = 0
     for idx, (start, end, seg_type) in enumerate(merged_segments):
-        log_message(f'{start}\t{end}\t{seg_type}')
+        log_message(f'{start}\t{end}\t{seg_type}', printthis=False)
         duration = end - start
         if(duration < 0.05):
-            safe_print(f"[WARNING] Skipping short segment of file {input_file}:\n\t {start}-{end} ({duration}s)")
-            log_message(f"[WARNING] Skipping short segment of file {input_file}:\n\t {start}-{end} ({duration}s)")
+            log_message(f"Skipping short segment of file {input_file}:\n\t {start}-{end} ({duration}s)", level="WARNING")
             continue
-        segment_filename = os.path.join(temp_dir, f"{idx:04d}_{seg_type}_{start}_{end}.wav")
+        if MAX_SEGMENT_DURATION < duration and seg_type == 'non_silence':
+            #split this segment into multiple segments
+            num_subsegments = int(duration // MAX_SEGMENT_DURATION) + 1
+            subsegment_duration = duration / num_subsegments
+            for sub_idx in range(num_subsegments):
+                sub_start = start + sub_idx * subsegment_duration
+                sub_end = start + (sub_idx + 1) * subsegment_duration
+                if sub_end > end:
+                    sub_end = end
+                sub_duration = sub_end - sub_start
+                segment_filename = os.path.join(temp_dir, f"{file_index:04d}_{seg_type}_{sub_start:.3f}_{sub_end:.3f}.wav")
+                file_index += 1
+                if extract_audio_segment(input_file, sub_start, sub_duration, segment_filename, continue_job):
+                    extracted_segments.append((segment_filename, seg_type, sub_start, sub_end))
+            continue
+        segment_filename = os.path.join(temp_dir, f"{file_index:04d}_{seg_type}_{start}_{end}.wav")
+        file_index += 1
 
-        #if segment_filename already exists, skip it
-        if continue_job and os.path.exists(segment_filename):
+        if extract_audio_segment(input_file, start, duration, segment_filename, continue_job):
             extracted_segments.append((segment_filename, seg_type, start, end))
-            safe_print(f"[WARNING] Skipping segment {segment_filename} because it already exists")
-            continue
-        ffmpeg_extract_cmd = [
-            'ffmpeg', '-y', '-i', input_file, '-ss', str(start), '-t', str(duration),
-            '-c', 'copy', segment_filename
-        ]
-        subprocess.run(ffmpeg_extract_cmd, check=True, encoding='utf-8', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        extracted_segments.append((segment_filename, seg_type, start, end))
-    log_message(f'END segments')
+    log_message(f'END segments of {input_file}', printthis=True)
     
     return extracted_segments
 
