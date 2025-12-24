@@ -52,3 +52,5 @@ test/
 run_infer.log
 *.cmd
 *.exe
+
+venv*/
