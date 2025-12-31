@@ -77,7 +77,7 @@ def get_audio_detail(input_file):
     except (subprocess.CalledProcessError, ValueError) as e:
         return -1.0, -1, 'unknown'
 
-def append_silence(input_file: str, append_duration: float, sample_rate: int, channel: str, continue_job) -> bool:
+def append_silence(input_file: str, append_duration: float, sample_rate: int, channel: str, continue_job, output_file=None) -> str:
     """
     Append silence to the end of the input audio file.
 
@@ -91,9 +91,10 @@ def append_silence(input_file: str, append_duration: float, sample_rate: int, ch
     """
     log_message(f'append silence to {input_file} by {append_duration} seconds')
     # output file name = input file name appended with '_append'
-    output_file = input_file
-    if '.wav' in input_file:
-        output_file = input_file.rsplit('.wav', 1)[0] + '_append.wav'
+    if output_file is None:
+        output_file = input_file
+        if '.wav' in input_file:
+            output_file = input_file.rsplit('.wav', 1)[0] + '_append.wav'
         
     #if output_file already exists, skip it
     if continue_job and os.path.exists(output_file):
@@ -109,6 +110,53 @@ def append_silence(input_file: str, append_duration: float, sample_rate: int, ch
         subprocess.run(ffmpeg_silence_cmd, check=True, encoding='utf-8', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except subprocess.CalledProcessError as e:
         log_message(f"[Error] appending silence: {e}")
+        return input_file
+
+    return output_file
+
+
+def append_silence_then_head(
+    input_file: str,
+    silence_duration: float,
+    head_duration: float,
+    sample_rate: int,
+    channel: str,
+    continue_job: bool,
+    output_file: str,
+) -> str:
+    """Append tail padding: 1) silence, then 2) first N seconds of the segment.
+
+    Result: output = input + silence_duration + head(input, head_duration)
+    """
+    silence_duration = max(0.0, float(silence_duration))
+    head_duration = max(0.0, float(head_duration))
+    if silence_duration == 0.0 and head_duration == 0.0:
+        return input_file
+
+    if continue_job and os.path.exists(output_file):
+        log_message(
+            f"Skipping tail padding for {input_file} because {output_file} already exists",
+            level='WARNING',
+        )
+        return output_file
+
+    ffmpeg_pad_cmd = [
+        'ffmpeg', '-y', '-i', input_file,
+        '-filter_complex',
+        (
+            f"[0:a]asplit=2[a0][a1];"
+            f"[a0]asetpts=PTS-STARTPTS[a];"
+            f"[a1]atrim=start=0:duration={head_duration},asetpts=PTS-STARTPTS[head];"
+            f"anullsrc=channel_layout={channel}:sample_rate={sample_rate},atrim=duration={silence_duration},asetpts=PTS-STARTPTS[sil];"
+            f"[a][sil][head]concat=n=3:v=0:a=1[out]"
+        ),
+        '-map', '[out]',
+        output_file,
+    ]
+    try:
+        subprocess.run(ffmpeg_pad_cmd, check=True, encoding='utf-8', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError as e:
+        log_message(f"[Error] tail padding: {e}")
         return input_file
 
     return output_file
@@ -395,6 +443,9 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
             dst = os.path.join(processed_dir, fname)
             shutil.move(src, dst)
 
+    padded_dir = os.path.join(file_temp_dir, "padded_segments")
+    os.makedirs(padded_dir, exist_ok=True)
+
     end_time = datetime.datetime.now()
     print(f"{end_time} Finished splitting segments for file: {filename}, duration: {end_time - begin_time}")
 
@@ -404,10 +455,31 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
     for idx, file in enumerate(wav_files, 1):
         processing_begin_time = datetime.datetime.now()
         print(f"{processing_begin_time} Processing {idx}/{total}: {file}")
+
+        input_path = os.path.join(file_temp_dir, file)
+        duration, sample_rate, channel_str = get_audio_detail(input_path)
+        if sample_rate <= 0:
+            sample_rate = model.sr
+        if channel_str == 'unknown':
+            channel_str = 'mono'
+        padded_input_path = os.path.join(padded_dir, file)
+        padded_input_path = append_silence_then_head(
+            input_file=input_path,
+            silence_duration=1.0,
+            head_duration=2.0,
+            sample_rate=sample_rate,
+            channel=channel_str,
+            continue_job=continue_job,
+            output_file=padded_input_path,
+        )
         wav = model.generate(
-            audio=os.path.join(file_temp_dir, file),
+            audio=padded_input_path,
             target_voice_path=target_voice_path,
         )
+
+        trim_samples = int(model.sr * 3.0)
+        if trim_samples > 0 and wav.shape[-1] > trim_samples:
+            wav = wav[..., :-trim_samples]
         output_path = os.path.join(processed_dir, file)
         ta.save(output_path, wav, model.sr)
         processing_end_time = datetime.datetime.now()
