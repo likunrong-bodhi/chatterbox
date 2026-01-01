@@ -192,7 +192,7 @@ def extract_audio_segment(input_file: str, start_time: float, duration: float, o
         print(f"[Error] extracting segment: {e}", file=sys.stderr)
         return False
 
-def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-20, silence_duration=1.5, continue_job=False, padding_sec=0.1):
+def split_audio_into_segments(input_file: str, temp_dir: str, noise_threshold=-30, silence_duration=1.5, continue_job=False, padding_sec=0.1):
     """
     Splits the input audio file into segments labeled as 'silence' and 'non_silence'
     using ffmpeg's silencedetect filter.
@@ -428,7 +428,7 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
     # Split the file into silence and non-silence segments.
     segments = split_audio_into_segments(
-        input_file, file_temp_dir, noise_threshold=-20, silence_duration=1.5, continue_job=continue_job, padding_sec=0.1
+        input_file, file_temp_dir, noise_threshold=-30, silence_duration=1, continue_job=continue_job, padding_sec=0.2
     )
 
     # Process each segment accordingly.
@@ -458,29 +458,42 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
         input_path = os.path.join(file_temp_dir, file)
         duration, sample_rate, channel_str = get_audio_detail(input_path)
+
+        print(f"audio input path: {input_path}, sample_rate: {sample_rate}, channel: {channel_str}, duration: {duration}")
+
         if sample_rate <= 0:
             sample_rate = model.sr
         if channel_str == 'unknown':
             channel_str = 'mono'
+
+        print(f"append_silence_then_head sample reate: {sample_rate}")
+
         padded_input_path = os.path.join(padded_dir, file)
         padded_input_path = append_silence_then_head(
             input_file=input_path,
-            silence_duration=1.0,
-            head_duration=2.0,
+            silence_duration=0.1,
+            head_duration=4.9,
             sample_rate=sample_rate,
             channel=channel_str,
             continue_job=continue_job,
             output_file=padded_input_path,
         )
+
+        print(f"Padded input path: {padded_input_path}")
+        print(f"target voice path: {target_voice_path}")
+
         wav = model.generate(
             audio=padded_input_path,
             target_voice_path=target_voice_path,
         )
 
-        trim_samples = int(model.sr * 3.0)
+        trim_samples = int(model.sr * 5.0)
         if trim_samples > 0 and wav.shape[-1] > trim_samples:
             wav = wav[..., :-trim_samples]
         output_path = os.path.join(processed_dir, file)
+
+        print(f"Saving output to: {output_path}")
+
         ta.save(output_path, wav, model.sr)
         processing_end_time = datetime.datetime.now()
         print(f"{processing_end_time} Finished {idx}/{total}: {file}, duration: {processing_end_time - processing_begin_time}")
@@ -522,7 +535,7 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
     print(f"Cleaning up temporary files...")
     # cleanup temp_dir
-    shutil.rmtree(file_temp_dir, ignore_errors=True)
+    #shutil.rmtree(file_temp_dir, ignore_errors=True)
 
     combined_end_time = datetime.datetime.now()
     print(f"{combined_end_time} Finished combining for file: {filename}, duration: {combined_end_time - combined_begin_time}")
