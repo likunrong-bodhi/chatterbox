@@ -535,7 +535,7 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
     print(f"Cleaning up temporary files...")
     # cleanup temp_dir
-    #shutil.rmtree(file_temp_dir, ignore_errors=True)
+    shutil.rmtree(file_temp_dir, ignore_errors=True)
 
     combined_end_time = datetime.datetime.now()
     print(f"{combined_end_time} Finished combining for file: {filename}, duration: {combined_end_time - combined_begin_time}")
