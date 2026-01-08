@@ -468,11 +468,15 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
 
         print(f"append_silence_then_head sample reate: {sample_rate}")
 
+        silence_duration = 0.1
+        head_duration = 9.9
+        trim_samples_duration = silence_duration + head_duration
+
         padded_input_path = os.path.join(padded_dir, file)
         padded_input_path = append_silence_then_head(
             input_file=input_path,
-            silence_duration=0.1,
-            head_duration=9.9,
+            silence_duration=silence_duration,
+            head_duration=head_duration,
             sample_rate=sample_rate,
             channel=channel_str,
             continue_job=continue_job,
@@ -487,7 +491,7 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
             target_voice_path=target_voice_path,
         )
 
-        trim_samples = int(model.sr * 5.0)
+        trim_samples = int(model.sr * trim_samples_duration)
         if trim_samples > 0 and wav.shape[-1] > trim_samples:
             wav = wav[..., :-trim_samples]
         output_path = os.path.join(processed_dir, file)
