@@ -472,7 +472,7 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
         padded_input_path = append_silence_then_head(
             input_file=input_path,
             silence_duration=0.1,
-            head_duration=4.9,
+            head_duration=9.9,
             sample_rate=sample_rate,
             channel=channel_str,
             continue_job=continue_job,
