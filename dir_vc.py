@@ -7,6 +7,7 @@ import re
 import datetime
 import math
 import shlex
+import gc
 from pydub import AudioSegment
 
 import torch
@@ -416,6 +417,9 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
     begin_time = datetime.datetime.now()
     print(f"{begin_time} Processing file: {filename}, using target voice: {target_voice_path}")
 
+    # device used by the model (used for clearing caches and reloading)
+    device = model.device if hasattr(model, 'device') else ("cuda" if torch.cuda.is_available() else "cpu")
+
     input_file = os.path.join(input_dir, filename)
     base_name, _ = os.path.splitext(filename)
 
@@ -501,6 +505,37 @@ def process_audio_file(filename, input_dir, temp_dir, output_dir, target_voice_p
         ta.save(output_path, wav, model.sr)
         processing_end_time = datetime.datetime.now()
         print(f"{processing_end_time} Finished {idx}/{total}: {file}, duration: {processing_end_time - processing_begin_time}")
+
+        # --- Memory cleanup ---
+        try:
+            # remove large tensors and force python GC
+            del wav
+        except Exception:
+            pass
+        gc.collect()
+        # clear CUDA cache if available
+        if device == 'cuda' or torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+        # # Optional: reload model every N iterations to free any persistent device memory.
+        # # Reloading is expensive; set RELOAD_EVERY to None or 0 to disable.
+        # RELOAD_EVERY = 5
+        # if RELOAD_EVERY and (idx % RELOAD_EVERY) == 0 and idx < total:
+        #     print(f"Reloading model to free memory after {idx} iterations...")
+        #     try:
+        #         del model
+        #     except Exception:
+        #         pass
+        #     gc.collect()
+        #     if device == 'cuda' or torch.cuda.is_available():
+        #         try:
+        #             torch.cuda.empty_cache()
+        #         except Exception:
+        #             pass
+        #     model = ChatterboxVC.from_pretrained(device)
 
     combined_begin_time = datetime.datetime.now()
     print(f"{combined_begin_time} Combining ...")
